@@ -2,153 +2,141 @@
 <html lang="hi">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PK Smart Collector Pro</title>
-    <script src="https://unpkg.com/html5-qrcode"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PK Production Scan</title>
+    <script src="https://unpkg.com/@zxing/library@latest"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
-        :root { --primary: #059669; --error: #dc2626; --dark: #1e293b; }
-        body { font-family: 'Segoe UI', sans-serif; background: #f1f5f9; margin: 0; padding: 10px; }
-        .app-shell { max-width: 500px; margin: auto; background: white; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); overflow: hidden; display: flex; flex-direction: column; min-height: 95vh; }
-        .header { background: var(--dark); color: white; padding: 15px; text-align: center; border-bottom: 4px solid var(--primary); }
-        #reader { width: 100%; background: #000; }
-        .alert { background: #fee2e2; color: var(--error); padding: 10px; text-align: center; font-weight: bold; display: none; }
-        
-        /* Stats Styling */
-        .stats-bar { display: grid; grid-template-columns: 1fr 1fr; background: #ecfdf5; padding: 10px; border-bottom: 1px solid #ddd; }
-        .stat-box { text-align: center; border-right: 1px solid #d1fae5; }
-        .stat-box span { display: block; font-size: 22px; font-weight: bold; color: var(--primary); }
-
-        /* Doff Wise Sections on Mobile Screen */
-        .log-area { flex-grow: 1; padding: 15px; overflow-y: auto; background: #fff; }
-        .doff-group-header { background: #e2e8f0; padding: 8px 15px; border-radius: 8px; font-weight: bold; margin-top: 15px; color: #334155; display: flex; justify-content: space-between; }
-        .scan-card { background: #f8fafc; border: 1px solid #e2e8f0; padding: 10px; border-radius: 10px; margin-top: 5px; border-left: 5px solid var(--primary); display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
-        
-        .footer { padding: 15px; background: white; border-top: 1px solid #eee; }
-        .btn-excel { width: 100%; padding: 16px; background: var(--primary); color: white; border: none; border-radius: 12px; font-weight: bold; font-size: 16px; cursor: pointer; }
+        :root { --primary: #2563eb; --error: #e11d48; --success: #059669; }
+        body { font-family: sans-serif; margin: 0; background: #f8fafc; padding: 15px; }
+        .card { max-width: 450px; margin: auto; background: white; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); overflow: hidden; }
+        .header { background: #1e293b; color: white; padding: 20px; text-align: center; }
+        #video { width: 100%; height: 250px; object-fit: cover; background: #000; }
+        .stats { display: flex; justify-content: space-around; padding: 15px; background: #f1f5f9; border-bottom: 2px solid #ddd; }
+        .stat-box { text-align: center; font-weight: bold; }
+        .stat-box span { display: block; font-size: 20px; color: var(--primary); }
+        .alert { padding: 10px; text-align: center; font-weight: bold; display: none; }
+        .list-area { padding: 15px; max-height: 250px; overflow-y: auto; }
+        .item { padding: 10px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+        .footer { padding: 15px; }
+        .btn { width: 100%; padding: 15px; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; font-size: 16px; }
+        .btn-excel { background: var(--success); color: white; }
     </style>
 </head>
 <body>
 
-<div class="app-shell">
+<div class="card">
     <div class="header">
-        <h2 style="margin:0;">PK Production Collector</h2>
-        <small>Smart Doff Filtering System</small>
+        <h2 style="margin:0;">PK Data Scanner</h2>
+        <small>Doff Wise Tracking</small>
     </div>
 
-    <div id="duplicateAlert" class="alert">⚠️ DUPLICATE DETECTED!</div>
-    <div id="reader"></div>
+    <video id="video"></video>
+    
+    <div id="msg" class="alert"></div>
 
-    <div class="stats-bar">
-        <div class="stat-box"><span id="totalBBN">0</span>Grand Total</div>
-        <div class="stat-box"><span id="uniqueDoffs">0</span>Active Doffs</div>
+    <div class="stats">
+        <div class="stat-box"><span id="totalDoffs">0</span>Total Doffs</div>
+        <div class="stat-box"><span id="totalPkgs">0</span>Total Pkgs</div>
     </div>
 
-    <div class="log-area" id="scanLog">
-        <p style="text-align:center; color:#94a3b8; margin-top:30px;">Doff QR scan karein...</p>
+    <div class="list-area" id="listArea">
+        <p style="text-align:center; color:#999;">Scan QR to start...</p>
     </div>
 
     <div class="footer">
-        <button class="btn-excel" onclick="exportToExcel()">DOWNLOAD DOFF-WISE EXCEL</button>
-        <button onclick="if(confirm('Data clear karein?')) {scannedList=[]; refreshUI();}" style="width:100%; border:none; background:none; color:#94a3b8; font-size:11px; margin-top:10px; cursor:pointer;">CLEAR SESSION</button>
+        <button class="btn btn-excel" onclick="downloadExcel()">DOWNLOAD EXCEL REPORT</button>
     </div>
 </div>
 
 <script>
-    let scannedList = [];
-    const html5QrCode = new Html5Qrcode("reader");
+    const codeReader = new ZXing.BrowserQRCodeReader();
+    const videoElem = document.getElementById('video');
+    const msgElem = document.getElementById('msg');
+    
+    let scannedDoffs = []; // Array of {doff, packages}
 
-    function startScanner() {
-        html5QrCode.start({ facingMode: "environment" }, { fps: 20, qrbox: 250 }, (text) => {
-            handleScan(text);
-        }).catch(err => { console.error(err); });
-    }
+    // Camera Start
+    codeReader.decodeFromVideoDevice(null, 'video', (result, err) => {
+        if (result) {
+            handleScan(result.text);
+        }
+    });
 
-    function handleScan(data) {
-        if (scannedList.some(item => item.raw === data)) {
-            document.getElementById("duplicateAlert").style.display = "block";
-            if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
-            setTimeout(() => { document.getElementById("duplicateAlert").style.display = "none"; }, 2000);
+    function handleScan(rawText) {
+        // Format check (Doff,BBN,Spindle)
+        let parts = rawText.split(',');
+        if (parts.length < 2) return;
+
+        let doffNo = parts[0].trim();
+        
+        // VALIDATION: 1 Doff dobara collect naa kare
+        let existingDoff = scannedDoffs.find(item => item.doff === doffNo);
+        
+        if (existingDoff) {
+            showAlert("⚠️ Doff " + doffNo + " Pehle se scanned hai!", "var(--error)");
             return;
         }
 
-        let parts = data.split(",");
-        if (parts.length < 2) return;
-
+        // Success: Naya Doff Mila
         if (navigator.vibrate) navigator.vibrate(100);
         
-        scannedList.push({
-            raw: data,
-            doff: parts[0],
-            bbnRef: parts[1],
-            spindle: parts[2] || "N/A",
-            time: new Date().toLocaleTimeString(),
-            date: new Date().toLocaleDateString()
+        // Note: Yahan hum 1 scan ko 1 doff maan rahe hain, 
+        // aur QR mein jo package count hai use package count maan rahe hain
+        scannedDoffs.push({
+            doff: doffNo,
+            packages: parts[1] || "1"
         });
 
-        refreshUI();
+        showAlert("✅ Doff " + doffNo + " Added!", "var(--success)");
+        updateUI();
     }
 
-    function refreshUI() {
-        const log = document.getElementById("scanLog");
-        document.getElementById("totalBBN").innerText = scannedList.length;
+    function showAlert(text, color) {
+        msgElem.innerText = text;
+        msgElem.style.display = "block";
+        msgElem.style.color = color;
+        setTimeout(() => { msgElem.style.display = "none"; }, 2500);
+    }
+
+    function updateUI() {
+        const listArea = document.getElementById('listArea');
+        document.getElementById('totalDoffs').innerText = scannedDoffs.length;
         
-        // Doff wise grouping logic for mobile screen
-        const groups = scannedList.reduce((acc, item) => {
-            if (!acc[item.doff]) acc[item.doff] = [];
-            acc[item.doff].push(item);
-            return acc;
-        }, {});
+        let totalPackages = scannedDoffs.reduce((sum, item) => sum + parseInt(item.packages), 0);
+        document.getElementById('totalPkgs').innerText = totalPackages;
 
-        document.getElementById("uniqueDoffs").innerText = Object.keys(groups).length;
-
-        log.innerHTML = "";
-        Object.keys(groups).sort().forEach(doffName => {
-            let groupHTML = `<div class="doff-group-header"><span>DOFF: ${doffName}</span> <span>Qty: ${groups[doffName].length}</span></div>`;
-            groups[doffName].reverse().forEach(item => {
-                groupHTML += `
-                <div class="scan-card">
-                    <span>S-${item.spindle} <small style="color:#666; margin-left:10px;">${item.time}</small></span>
-                    <span style="color:#059669; font-weight:bold;">OK</span>
+        listArea.innerHTML = "";
+        scannedDoffs.forEach((item, index) => {
+            listArea.innerHTML += `
+                <div class="item">
+                    <span><b>${index + 1}.</b> Doff: ${item.doff}</span>
+                    <span style="color:var(--primary)">Pkgs: ${item.packages}</span>
                 </div>`;
-            });
-            log.innerHTML += groupHTML;
         });
     }
 
-    function exportToExcel() {
-        if (scannedList.length === 0) return alert("Scan first!");
+    function downloadExcel() {
+        if (scannedDoffs.length === 0) return alert("No data to download!");
 
-        // Doff filtering/sorting for Excel
-        let sorted = [...scannedList].sort((a, b) => a.doff.localeCompare(b.doff));
+        // Table Header
+        const data = [["S.N.", "Doff No.", "No. of Package"]];
         
-        const excelData = [["SR NO.", "DATE", "SCAN TIME", "DOFF NUMBER", "SPINDLE NO", "STATUS"]];
-        let currentDoff = "";
-        let doffCount = 0;
-
-        sorted.forEach((d, i) => {
-            if (currentDoff !== "" && currentDoff !== d.doff) {
-                excelData.push(["", "", "", `SUBTOTAL ${currentDoff}`, doffCount, "BOBBINS"]);
-                excelData.push([]); // Gap
-                doffCount = 0;
-            }
-            currentDoff = d.doff;
-            doffCount++;
-            excelData.push([i + 1, d.date, d.time, d.doff, d.spindle, "COLLECTED"]);
+        // Table Data
+        scannedDoffs.forEach((item, index) => {
+            data.push([index + 1, item.doff, item.packages]);
         });
 
-        excelData.push(["", "", "", `SUBTOTAL ${currentDoff}`, doffCount, "BOBBINS"]);
-        excelData.push([]);
-        excelData.push(["", "", "", "GRAND TOTAL COLLECTED:", scannedList.length, "PIECES"]);
+        // Auto-Sum Row
+        let totalSum = scannedDoffs.reduce((sum, item) => sum + parseInt(item.packages), 0);
+        data.push([]);
+        data.push(["", "TOTAL COLLECTED", totalSum]);
 
-        const ws = XLSX.utils.aoa_to_sheet(excelData);
-        ws['!cols'] = [{wch:8}, {wch:12}, {wch:12}, {wch:15}, {wch:15}, {wch:15}];
+        const ws = XLSX.utils.aoa_to_sheet(data);
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "DoffWiseReport");
-        XLSX.writeFile(wb, `PK_Doff_Report_${new Date().toLocaleDateString()}.xlsx`);
+        XLSX.utils.book_append_sheet(wb, ws, "Production");
+        XLSX.writeFile(wb, "PK_Doff_Report.xlsx");
     }
-
-    window.onload = startScanner;
 </script>
 </body>
 </html>
